@@ -49,7 +49,7 @@ class RsConsoleToolWindow(private val project: Project) {
     private fun doInit(toolWindow: ToolWindow) {
         if (!isInitialized) {
             isInitialized = true
-            toolWindow.isToHideOnEmptyContent = true
+//            toolWindow.isToHideOnEmptyContent = true
         }
     }
 

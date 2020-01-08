@@ -171,7 +171,7 @@ project(":plugin") {
         val plugins = mutableListOf(
             project(":intellij-toml"),
             "IntelliLang",
-            graziePlugin,
+//            graziePlugin,
             psiViewerPlugin
         )
         if (baseIDE == "idea") {
@@ -194,7 +194,7 @@ project(":plugin") {
         compile(project(":coverage"))
         compile(project(":intelliLang"))
         compile(project(":duplicates"))
-        compile(project(":grazie"))
+//        compile(project(":grazie"))
     }
 
     tasks {
@@ -278,12 +278,12 @@ project(":") {
         purgeOldFiles = true
     }
 
-    tasks.withType<KotlinCompile> {
-        dependsOn(
-            generateRustLexer, generateRustDocHighlightingLexer,
-            generateRustParser
-        )
-    }
+//    tasks.withType<KotlinCompile> {
+//        dependsOn(
+//            generateRustLexer, generateRustDocHighlightingLexer,
+//            generateRustParser
+//        )
+//    }
 
     tasks.withType<Test> {
         testLogging {
@@ -421,17 +421,17 @@ project(":coverage") {
     }
 }
 
-project(":grazie") {
-    intellij {
-        setPlugins(graziePlugin)
-    }
-    dependencies {
-        compile(project(":"))
-        compile(project(":common"))
-        testCompile(project(":", "testOutput"))
-        testCompile(project(":common", "testOutput"))
-    }
-}
+//project(":grazie") {
+//    intellij {
+//        setPlugins(graziePlugin)
+//    }
+//    dependencies {
+//        compile(project(":"))
+//        compile(project(":common"))
+//        testCompile(project(":", "testOutput"))
+//        testCompile(project(":common", "testOutput"))
+//    }
+//}
 
 project(":intellij-toml") {
     version = "0.2.$patchVersion.${prop("buildNumber")}$versionSuffix"
@@ -463,9 +463,9 @@ project(":intellij-toml") {
     }
 
     tasks{
-        withType<KotlinCompile> {
-            dependsOn(generateTomlLexer, generateTomlParser)
-        }
+//        withType<KotlinCompile> {
+//            dependsOn(generateTomlLexer, generateTomlParser)
+//        }
         withType<PublishTask> {
             token(prop("publishToken"))
             channels(channel)
