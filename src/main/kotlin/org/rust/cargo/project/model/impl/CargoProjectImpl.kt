@@ -197,17 +197,29 @@ open class CargoProjectsServiceImpl(
     fun updateFeature(cargoProject: CargoProjectImpl, name: String, newState: Boolean) {
         val newFeatures = cargoProject.userOverriddenFeatures.toMutableMap()
         newFeatures[name] = newState
-
         val newProject = cargoProject.copy(userOverriddenFeatures = newFeatures)
+        doUpdateFeatures(cargoProject, newProject)
+    }
 
+    fun updateFeatures(cargoProject: CargoProjectImpl, featuresSetting: FeaturesSetting) {
+        val userOverriddenFeatures = when (featuresSetting) {
+            FeaturesSetting.All -> cargoProject.userOverriddenFeatures.keys.associateWith { true }
+            FeaturesSetting.Default -> emptyMap()
+            FeaturesSetting.NoDefault -> emptyMap()
+        }
+        val newProject = cargoProject.copy(userOverriddenFeatures = userOverriddenFeatures)
+        doUpdateFeatures(cargoProject, newProject)
+    }
+
+    private fun doUpdateFeatures(cargoProject: CargoProjectImpl, newProject: CargoProjectImpl) {
         projects.updateSync { projects ->
             projects.filter { it.manifest != cargoProject.manifest } + newProject
         }.whenComplete { projects, _ ->
             ApplicationManager.getApplication().invokeAndWait {
                 runWriteAction {
                     directoryIndex.resetIndex()
-//                    ProjectRootManagerEx.getInstanceEx(project)
-//                        .makeRootsChange(EmptyRunnable.getInstance(), false, true)
+                    //                    ProjectRootManagerEx.getInstanceEx(project)
+                    //                        .makeRootsChange(EmptyRunnable.getInstance(), false, true)
                     project.messageBus.syncPublisher(CargoProjectsService.CARGO_PROJECTS_TOPIC)
                         .cargoProjectsUpdated(projects)
                     DaemonCodeAnalyzer.getInstance(project).restart()
@@ -270,7 +282,8 @@ open class CargoProjectsServiceImpl(
                 val (name, value) = it.split(" = ")
                 name to value.toBoolean()
             }
-            val featuresSetting = FeaturesSetting.fromString(cargoProject.getAttributeValue("FEATURES_SETTING"))
+            val featuresSetting = FeaturesSetting.fromString(cargoProject.getAttributeValue("FEATURES_SETTING")
+                ?: "Default")
             val newProject = CargoProjectImpl(Paths.get(file), this, userOverriddenFeatures = features)
             newProject.featuresSetting = featuresSetting
             loaded.add(newProject)
@@ -345,6 +358,7 @@ data class CargoProjectImpl(
         return refreshRustcInfo()
             .thenCompose { it.refreshWorkspace() }
             .thenCompose { it.refreshStdlib() }
+//            .thenApply { it.featuresSetting = this.featuresSetting; it }
     }
 
     private fun refreshStdlib(): CompletableFuture<CargoProjectImpl> {

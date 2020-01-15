@@ -5,23 +5,34 @@
 
 package org.rust.toml
 
+import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer
 import com.intellij.codeInsight.daemon.LineMarkerInfo
 import com.intellij.codeInsight.daemon.LineMarkerProvider
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.actionSystem.impl.SimpleDataContext
+import com.intellij.openapi.application.runWriteAction
 import com.intellij.openapi.editor.markup.GutterIconRenderer.Alignment
+import com.intellij.openapi.ui.popup.JBPopup
+import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.psi.PsiElement
+import com.intellij.ui.awt.RelativePoint
 import org.rust.cargo.project.model.cargoProjects
 import org.rust.cargo.project.model.impl.CargoProjectImpl
 import org.rust.cargo.project.model.impl.CargoProjectsServiceImpl
 import org.rust.cargo.project.workspace.CargoWorkspace
 import org.rust.cargo.project.workspace.FeatureState
+import org.rust.cargo.project.workspace.FeaturesSetting
 import org.rust.cargo.project.workspace.PackageOrigin
 import org.rust.ide.icons.RsIcons
 import org.rust.lang.core.psi.ext.findCargoPackage
 import org.rust.lang.core.psi.ext.findCargoProject
 import org.toml.lang.psi.TomlFile
 import org.toml.lang.psi.TomlKey
-import org.toml.lang.psi.TomlKeyValue
 import org.toml.lang.psi.TomlTable
+import org.toml.lang.psi.TomlTableHeader
+import java.awt.event.MouseEvent
 
 class CargoFeatureLineMarkerProvider : LineMarkerProvider {
     override fun getLineMarkerInfo(element: PsiElement): LineMarkerInfo<*>? = null
@@ -50,8 +61,8 @@ class CargoFeatureLineMarkerProvider : LineMarkerProvider {
             if (!lastName.isFeaturesKey) continue
 
             for (entry in element.entries) {
-                val featureName = entry.name
-                val lineMarkerInfo = genLineMarkerInfo(
+                val featureName = entry.key.text
+                val featureLineMarkerInfo = genFeatureLineMarkerInfo(
                     entry.key,
                     featureName,
                     features[featureName],
@@ -59,12 +70,19 @@ class CargoFeatureLineMarkerProvider : LineMarkerProvider {
                     cargoProjectsService,
                     cargoPackage
                 )
-                result.add(lineMarkerInfo)
+                result.add(featureLineMarkerInfo)
+            }
+
+            if (cargoPackage.origin == PackageOrigin.WORKSPACE) {
+                val settingsLineMarkerInfo = genSettingsLineMarkerInfo(
+                    element.header, cargoProjectsService
+                )
+                result.add(settingsLineMarkerInfo)
             }
         }
     }
 
-    private fun genLineMarkerInfo(
+    private fun genFeatureLineMarkerInfo(
         element: TomlKey,
         name: String,
         featureState: FeatureState?,
@@ -72,7 +90,7 @@ class CargoFeatureLineMarkerProvider : LineMarkerProvider {
         cargoProjectsService: CargoProjectsServiceImpl,
         cargoPackage: CargoWorkspace.Package
     ): LineMarkerInfo<PsiElement> {
-        val anchor = element.bareKey
+        val anchor = element.firstChild
         val icon = when (featureState) {
             FeatureState.Enabled -> RsIcons.FEATURE_CHECKED_MARK
             FeatureState.Disabled -> RsIcons.FEATURE_UNCHECKED_MARK
@@ -98,7 +116,77 @@ class CargoFeatureLineMarkerProvider : LineMarkerProvider {
             LineMarkerInfo(anchor, anchor.textRange, icon, null, null, Alignment.LEFT)
         }
     }
+
+    private fun genSettingsLineMarkerInfo(
+        header: TomlTableHeader,
+        cargoProjectsService: CargoProjectsServiceImpl
+    ): LineMarkerInfo<PsiElement> {
+        val anchor = header.firstChild
+        val icon = RsIcons.FEATURES_SETTINGS
+
+        val configure = { e: MouseEvent, element: PsiElement ->
+            val file = element.containingFile as? TomlFile
+            if (file != null && file.name.toLowerCase() == "cargo.toml") {
+                val cargoProject = file.findCargoProject() as? CargoProjectImpl
+                val cargoPackage = file.findCargoPackage()
+
+                if (cargoProject != null && cargoPackage != null) {
+                    val popup = createActionGroupPopup(cargoProject, cargoPackage, cargoProjectsService)
+                    popup.show(RelativePoint(e))
+                }
+            }
+        }
+
+        return LineMarkerInfo(
+            anchor,
+            anchor.textRange,
+            icon,
+            { "Configure features" },
+            { e, element -> configure(e, element) },
+            Alignment.LEFT
+        )
+    }
 }
 
-private val TomlKey.bareKey get() = firstChild
-private val TomlKeyValue.name get() = key.text
+
+private fun createActionGroupPopup(
+    cargoProject: CargoProjectImpl,
+    cargoPackage: CargoWorkspace.Package,
+    cargoProjectsService: CargoProjectsServiceImpl
+): JBPopup {
+    val actions = listOf(
+        FeaturesSettingsCheckboxAction(FeaturesSetting.All, cargoProject, cargoPackage, cargoProjectsService),
+        FeaturesSettingsCheckboxAction(FeaturesSetting.NoDefault, cargoProject, cargoPackage, cargoProjectsService)
+    )
+    val group = DefaultActionGroup(actions)
+    val context = SimpleDataContext.getProjectContext(null)
+    return JBPopupFactory.getInstance()
+        .createActionGroupPopup(null, group, context, JBPopupFactory.ActionSelectionAid.SPEEDSEARCH, true)
+}
+
+private class FeaturesSettingsCheckboxAction(
+    private val setting: FeaturesSetting,
+    private val cargoProject: CargoProjectImpl,
+    private val cargoPackage: CargoWorkspace.Package,
+    private val cargoProjectsService: CargoProjectsServiceImpl
+) : AnAction() {
+
+    init {
+        val text = when (setting) {
+            FeaturesSetting.All -> "Select all"
+            FeaturesSetting.NoDefault -> "Select none"
+            else -> error("unreachable")
+        }
+        templatePresentation.description = text
+        templatePresentation.text = text
+    }
+
+    override fun actionPerformed(e: AnActionEvent) {
+        cargoPackage.syncFeatureSetting(setting)
+        cargoProjectsService.updateFeatures(cargoProject, setting)
+
+        runWriteAction {
+            DaemonCodeAnalyzer.getInstance(cargoProject.project).restart()
+        }
+    }
+}
